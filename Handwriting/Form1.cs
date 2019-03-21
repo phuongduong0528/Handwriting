@@ -1,4 +1,5 @@
-﻿using Accord.Neuro;
+﻿using Accord.Math;
+using Accord.Neuro;
 using Accord.Neuro.Learning;
 using System;
 using System.Drawing;
@@ -11,7 +12,7 @@ namespace Handwriting
     public partial class Form1 : Form
     {
         ActivationNetwork network;
-        PerceptronLearning teacher;
+        ParallelResilientBackpropagationLearning teacherBL;
 
         public Form1()
         {
@@ -27,23 +28,26 @@ namespace Handwriting
 
         private void BtnLoadData_Click(object sender, EventArgs e)
         {
+            network = new ActivationNetwork(new SigmoidFunction(2), 1024, 256, 128, 10);
+            new NguyenWidrow(network).Randomize();
+
             StringReader reader = new StringReader(File.ReadAllText("Data\\optdigits-tra.txt"));
             int trainingStart = 0;
-            int trainingCount = 1500;
+            int trainingCount = 1000;
 
-            int testingStart = 1500;
-            int testingCount = 500;
+            int testingStart = 1000;
+            int testingCount = 1000;
 
             int c1 = 0;
-            int c2 = 0;
+            int c2 = 1;
             int trainingSet = 0;
             int testingSet = 0;
 
-            dataGridView1.Rows.Clear();
-            dataGridView1.RowTemplate.Height = 40;
+            dgvLearnSet.Rows.Clear();
+            dgvLearnSet.RowTemplate.Height = 40;
 
-            dataGridView2.Rows.Clear();
-            dataGridView2.RowTemplate.Height = 40;
+            dgvVerifySet.Rows.Clear();
+            dgvVerifySet.RowTemplate.Height = 40;
 
             while (true)
             {
@@ -59,22 +63,23 @@ namespace Handwriting
                     Bitmap bitmap = Ultilities.Extract(new string(buffer));
                     double[] features = Ultilities.Extract(bitmap);
                     int clabel1 = Int32.Parse(label);
-                    dataGridView1.Rows.Add(c1, bitmap, clabel1, features);
+                    dgvLearnSet.Rows.Add(c1, bitmap, clabel1, features);
                     trainingSet++;
-                    
+
                 }
                 else if (c1 > testingStart && c1 <= testingStart + testingCount)
                 {
                     Bitmap bitmap = Ultilities.Extract(new string(buffer));
                     double[] features = Ultilities.Extract(bitmap);
                     int clabel1 = Int32.Parse(label);
-                    dataGridView2.Rows.Add(c2, bitmap, clabel1, features);
+                    dgvVerifySet.Rows.Add(c2, bitmap, "", features, clabel1);
                     testingSet++;
                     c2++;
                 }
                 c1++;
             }
             btnLearn.Enabled = true;
+            btnVerify.Enabled = true;
         }
 
         private double[] Out(int value)
@@ -86,52 +91,65 @@ namespace Handwriting
 
         private void BtnLearn_Click(object sender, EventArgs e)
         {
-            int rows = dataGridView1.Rows.Count;
+            lblStatus.Text = "Hãy chờ vài phút!";
+            lblStatus.ForeColor = Color.Red;
+            lblStatus.Visible = true;
+            int rows = dgvLearnSet.Rows.Count;
             double[][] input = new double[rows - 1][];
             double[][] output = new double[rows - 1][];
-            network = new ActivationNetwork(new ThresholdFunction(), 1024, 10);
-            teacher = new PerceptronLearning(network);
+            teacherBL = new ParallelResilientBackpropagationLearning(network);
             double error = int.MaxValue;
             double lbl;
             for (int i = 0; i < rows - 1; i++)
             {
-                input[i] = (double[])dataGridView1.Rows[i].Cells[3].Value;
-                lbl = Convert.ToDouble(dataGridView1.Rows[i].Cells[2].Value);
-                output[i] = Out(Convert.ToInt32(dataGridView1.Rows[i].Cells[2].Value));
+                input[i] = (double[])dgvLearnSet.Rows[i].Cells[3].Value;
+                lbl = Convert.ToDouble(dgvLearnSet.Rows[i].Cells[2].Value);
+                output[i] = Out(Convert.ToInt32(dgvLearnSet.Rows[i].Cells[2].Value));
             }
-            //int count = 2000;
             while (true)
             {
-                error = teacher.RunEpoch(input, output);
-                if (error < 0.5)
+                error = teacherBL.RunEpoch(input, output);
+                if (error < 0.1)
                     break;
             }
             btnVerify.Enabled = true;
             btnClassify.Enabled = true;
+            lblStatus.Text = "Đã huấn luyện xong!";
+            lblStatus.ForeColor = Color.DarkGreen;
         }
 
         private void BtnVerify_Click(object sender, EventArgs e)
         {
             int correctCount = 0;
-            foreach (DataGridViewRow dgvRows in dataGridView2.Rows)
+            foreach (DataGridViewRow dgvRows in dgvVerifySet.Rows)
             {
                 if (dgvRows.Cells[2].Value != null)
                 {
                     double[] input = (double[])dgvRows.Cells[3].Value;
-                    int expected = (int)dgvRows.Cells[2].Value;
+                    int expected = (int)dgvRows.Cells[4].Value;
 
                     double[] netOutput = network.Compute(input);
                     int predicted = netOutput.ToList().IndexOf(netOutput.Max());
+                    dgvRows.Cells[2].Value = predicted;
                     if (predicted == expected)
                     {
                         correctCount++;
-                        dgvRows.Cells[0].Style.BackColor = Color.Green;
-                        dgvRows.Cells[1].Style.BackColor = Color.Green;
-                        dgvRows.Cells[2].Style.BackColor = Color.Green;
+                        dgvRows.Cells[0].Style.BackColor = Color.LightBlue;
+                        dgvRows.Cells[1].Style.BackColor = Color.LightBlue;
+                        dgvRows.Cells[2].Style.BackColor = Color.LightBlue;
+                        dgvRows.Cells[4].Style.BackColor = Color.LightBlue;
+                    }
+                    else
+                    {
+                        dgvRows.Cells[0].Style.BackColor = Color.LightCoral;
+                        dgvRows.Cells[1].Style.BackColor = Color.LightCoral;
+                        dgvRows.Cells[2].Style.BackColor = Color.LightCoral;
+                        dgvRows.Cells[4].Style.BackColor = Color.LightCoral;
                     }
                 }
             }
-            MessageBox.Show($"Độ chính xác {correctCount}/432", "",
+            double percent = ((double)correctCount / (double)(dgvVerifySet.RowCount - 1.0)) * 100;
+            MessageBox.Show($"Độ chính xác {Math.Round(percent, 1)}% ({correctCount}/{dgvVerifySet.RowCount - 1})", "",
                            MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
@@ -144,7 +162,7 @@ namespace Handwriting
                 int result = predicted.ToList().IndexOf(predicted.Max());
                 lblResult.Text = $"{result}";
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 MessageBox.Show("Hãy huấn luyện trước!", "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Asterisk);
                 BtnClearCanvas_Click(this, EventArgs.Empty);
@@ -153,7 +171,7 @@ namespace Handwriting
 
         private void DrawingBoard_MouseMove(object sender, MouseEventArgs e)
         {
-            if(e.Button == MouseButtons.Left)
+            if (e.Button == MouseButtons.Left)
                 BtnClassify_Click(this, EventArgs.Empty);
 
         }
